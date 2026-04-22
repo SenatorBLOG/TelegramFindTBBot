@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: findtb-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    disk:
+      name: bot-data
+      mountPath: /data
+      sizeGB: 1
+
+    envVars:
+      # ── Runtime mode ──────────────────────────────────────────────────────
+      - key: MODE
+        value: PROD
+
+      # ── Database (stored on the persistent disk) ──────────────────────────
+      - key: DB_PATH
+        value: /data/bot.db
+
+      # ── Webhook (Render injects PORT automatically) ───────────────────────
+      - key: WEBHOOK_PATH
+        value: /webhook
+
+      # Set WEBHOOK_URL to  https://<your-service-name>.onrender.com
+      # after the first deploy (Render shows the URL in the dashboard).
+      - key: WEBHOOK_URL
+        sync: false          # fill in the dashboard
+
+      # ── Secrets — fill these in the Render dashboard ──────────────────────
+      - key: BOT_TOKEN
+        sync: false
+
+      - key: PROD_GROUP_ID
+        sync: false
+
+      - key: ADMIN_USER_ID
+        sync: false
+
+      # ── Optional ──────────────────────────────────────────────────────────
+      # Uncomment and set if you have a dedicated "Анкеты" forum topic:
+      # - key: PROFILES_TOPIC_ID
+      #   sync: false
+
+      # Set to "true" to enable admin moderation of new profiles:
+      # - key: MODERATION
+      #   value: "false"

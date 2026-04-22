@@ -10,6 +10,10 @@ services:
       sizeGB: 1
 
     envVars:
+      # ── Python version (must be set — Render defaults to 3.14 otherwise) ──
+      - key: PYTHON_VERSION
+        value: 3.12.7
+
       # ── Runtime mode ──────────────────────────────────────────────────────
       - key: MODE
         value: PROD

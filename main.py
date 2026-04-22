@@ -14,6 +14,7 @@ from config import Config
 from db import Database
 from handlers import admin, common, profile, search
 from handlers import group as group_handler
+from repositories.destination_topic_repo import DestinationTopicRepository
 from repositories.profile_repo import ProfileRepository
 from repositories.user_repo import UserRepository
 from services.profile_service import ProfileService
@@ -144,6 +145,7 @@ async def main() -> None:
     # Repositories
     profile_repo = ProfileRepository(db.conn)
     user_repo = UserRepository(db.conn)
+    dest_topic_repo = DestinationTopicRepository(db.conn)
 
     # Bot + Dispatcher (FSM stored in a separate SQLite file)
     fsm_path = cfg.db_path.parent / "fsm.db"
@@ -156,7 +158,7 @@ async def main() -> None:
 
     # Services
     topic_service = TopicService(bot, cfg.group_id)
-    profile_service = ProfileService(profile_repo, topic_service)
+    profile_service = ProfileService(profile_repo, topic_service, dest_topic_repo)
     search_service = SearchService(profile_repo, topic_service)
 
     # Inject into handler context

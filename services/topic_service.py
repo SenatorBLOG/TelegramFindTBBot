@@ -1,4 +1,4 @@
-"""Thin wrapper over Telegram forum-topic API."""
+"""Thin wrapper over Telegram forum-topic and message APIs."""
 from __future__ import annotations
 
 import logging
@@ -14,6 +14,8 @@ class TopicService:
         self._bot = bot
         self._group_id = group_id
 
+    # ─────────── topic management ───────────
+
     async def create_topic(self, title: str) -> int:
         """Create a forum topic and return its message_thread_id."""
         topic = await self._bot.create_forum_topic(
@@ -22,13 +24,15 @@ class TopicService:
         log.info("Created topic %s (%r)", topic.message_thread_id, title)
         return topic.message_thread_id
 
+    # ─────────── profile message CRUD ───────────
+
     async def send_profile(
         self,
         topic_id: int,
         text: str,
         photo_file_id: Optional[str] = None,
     ) -> int:
-        """Send a profile post into a topic. Returns message_id."""
+        """Post a profile card into a topic. Returns the new message_id."""
         if photo_file_id:
             msg = await self._bot.send_photo(
                 chat_id=self._group_id,
@@ -54,24 +58,29 @@ class TopicService:
     ) -> int:
         """Delete the old profile post and send a fresh one in the same topic."""
         if old_message_id is not None:
-            try:
-                await self._bot.delete_message(
-                    chat_id=self._group_id, message_id=old_message_id
-                )
-            except Exception as e:
-                log.warning("Could not delete old message %s: %s", old_message_id, e)
+            await self.delete_message(old_message_id)
         return await self.send_profile(topic_id, new_text, photo_file_id)
 
-    async def close_topic(self, topic_id: int) -> None:
-        """Close (lock) a forum topic."""
+    async def delete_message(self, message_id: int) -> None:
+        """Delete any single message from the group (e.g. an old profile card)."""
         try:
-            await self._bot.close_forum_topic(
-                chat_id=self._group_id, message_thread_id=topic_id
+            await self._bot.delete_message(
+                chat_id=self._group_id, message_id=message_id
             )
         except Exception as e:
-            log.warning("Could not close topic %s: %s", topic_id, e)
+            log.warning("Could not delete message %s: %s", message_id, e)
+
+    # ─────────── link helpers ───────────
 
     def build_topic_link(self, topic_id: int) -> str:
+        """Deep-link to a destination forum topic (the whole thread)."""
+        return f"https://t.me/c/{self._internal_id}/{topic_id}"
+
+    def build_message_link(self, message_id: int) -> str:
+        """Deep-link to a specific profile-card message."""
+        return f"https://t.me/c/{self._internal_id}/{message_id}"
+
+    @property
+    def _internal_id(self) -> str:
         raw = str(self._group_id)
-        internal = raw[4:] if raw.startswith("-100") else raw.lstrip("-")
-        return f"https://t.me/c/{internal}/{topic_id}"
+        return raw[4:] if raw.startswith("-100") else raw.lstrip("-")

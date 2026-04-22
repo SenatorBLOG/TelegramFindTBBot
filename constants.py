@@ -47,14 +47,38 @@ DATE_RANGE_DISPLAY: dict[str, str] = {
     DateRange.FLEXIBLE.value: "🌤 Flexible",
 }
 
-# Popular destination quick-picks (flag, name)
+# Popular destination quick-picks (flag, name) — shown in wizard step 3.
+# Names here must match a keyword in utils/flags.py so the topic gets the right flag.
 POPULAR_DESTINATIONS: list[tuple[str, str]] = [
-    ("🇯🇵", "Japan"),
-    ("🇪🇺", "Europe"),
-    ("🇨🇦", "Canada"),
     ("🇹🇭", "Thailand"),
+    ("🇮🇩", "Bali"),
+    ("🇻🇳", "Vietnam"),
     ("🇬🇪", "Georgia"),
     ("🇹🇷", "Turkey"),
+    ("🇯🇵", "Japan"),
+    ("🇦🇪", "UAE"),
+    ("🇪🇬", "Egypt"),
+    ("🇲🇦", "Morocco"),
+    ("🇪🇸", "Spain"),
+    ("🇮🇹", "Italy"),
+    ("🇬🇷", "Greece"),
+    ("🇵🇹", "Portugal"),
+    ("🇨🇿", "Czech Republic"),
+    ("🇭🇺", "Hungary"),
+    ("🇭🇷", "Croatia"),
+    ("🇲🇪", "Montenegro"),
+    ("🇷🇸", "Serbia"),
+    ("🇦🇲", "Armenia"),
+    ("🇰🇭", "Cambodia"),
+    ("🇲🇻", "Maldives"),
+    ("🇮🇳", "India"),
+    ("🇸🇬", "Singapore"),
+    ("🇲🇽", "Mexico"),
+    ("🇨🇴", "Colombia"),
+    ("🇧🇷", "Brazil"),
+    ("🇺🇸", "USA"),
+    ("🇨🇦", "Canada"),
+    ("🇪🇺", "Europe"),
 ]
 
 # Callback data prefixes (≤ 64 bytes total per callback)

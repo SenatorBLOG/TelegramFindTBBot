@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE INDEX IF NOT EXISTS idx_profiles_destination ON profiles(destination);
 CREATE INDEX IF NOT EXISTS idx_profiles_topic_id    ON profiles(topic_id);
+
+CREATE TABLE IF NOT EXISTS destination_topics (
+    destination TEXT NOT NULL,
+    year        TEXT NOT NULL,
+    topic_id    INTEGER NOT NULL,
+    PRIMARY KEY (destination, year)
+);
 """
 
 # Columns added after initial release — applied idempotently to existing DBs.

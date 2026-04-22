@@ -105,7 +105,7 @@ async def post_profiles_index(
     """Post a sticky welcome message in the Анкеты topic on every startup."""
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text="📝 Заполнить анкету",
+            text="📝 Create my profile",
             url=f"https://t.me/{bot_username}?start=profile",
         ),
     ]])
@@ -114,9 +114,9 @@ async def post_profiles_index(
             chat_id=group_id,
             message_thread_id=profiles_topic_id,
             text=(
-                "👋 <b>Поиск попутчиков</b>\n\n"
-                "Здесь публикуются анкеты путешественников, которые ищут компанию.\n\n"
-                "Нажми кнопку ниже, чтобы создать свою анкету в личном чате с ботом."
+                "✈️ <b>Find a Travel Buddy</b>\n\n"
+                "Browse traveller profiles below and find your perfect trip companion.\n\n"
+                "Ready to meet people? Tap the button to create your profile."
             ),
             reply_markup=kb,
             disable_web_page_preview=True,

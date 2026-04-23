@@ -99,29 +99,78 @@ async def check_permissions(bot: Bot, group_id: int) -> None:
 
 # ─────────── profiles tab index message ───────────
 
+_INDEX_TEXT = (
+    "✈️ <b>Find a Travel Buddy</b>\n\n"
+    "Browse traveller profiles below and find your perfect trip companion.\n\n"
+    "Ready to meet people? Tap the button to create your profile."
+)
+_INDEX_KEY = "profiles_index_msg_id"
+
+
 async def post_profiles_index(
-    bot: Bot, group_id: int, profiles_topic_id: int, bot_username: str
+    bot: Bot,
+    group_id: int,
+    profiles_topic_id: int,
+    bot_username: str,
+    db_conn,
 ) -> None:
-    """Post a sticky welcome message in the Анкеты topic on every startup."""
+    """On startup: edit the existing index message if possible, otherwise post a new one.
+
+    Storing the message_id in the `settings` table prevents duplicate messages
+    every time Render restarts the process.
+    """
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
             text="📝 Create my profile",
             url=f"https://t.me/{bot_username}?start=profile",
         ),
     ]])
+
+    # ── Try to edit the previously posted message ──────────────────────────
+    async with db_conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (_INDEX_KEY,)
+    ) as cur:
+        row = await cur.fetchone()
+
+    if row:
+        try:
+            await bot.edit_message_text(
+                chat_id=group_id,
+                message_id=int(row[0]),
+                text=_INDEX_TEXT,
+                reply_markup=kb,
+                disable_web_page_preview=True,
+            )
+            log.info("Edited profiles index message %s", row[0])
+            return
+        except Exception:
+            pass  # message was deleted — fall through and post a fresh one
+
+    # ── Post a brand-new message and remember its ID ───────────────────────
     try:
-        await bot.send_message(
+        msg = await bot.send_message(
             chat_id=group_id,
             message_thread_id=profiles_topic_id,
-            text=(
-                "✈️ <b>Find a Travel Buddy</b>\n\n"
-                "Browse traveller profiles below and find your perfect trip companion.\n\n"
-                "Ready to meet people? Tap the button to create your profile."
-            ),
+            text=_INDEX_TEXT,
             reply_markup=kb,
             disable_web_page_preview=True,
         )
-        log.info("Posted profiles index message in topic %s", profiles_topic_id)
+        await db_conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (_INDEX_KEY, str(msg.message_id)),
+        )
+        await db_conn.commit()
+        # Pin it so it stays at the top
+        try:
+            await bot.pin_chat_message(
+                chat_id=group_id,
+                message_id=msg.message_id,
+                disable_notification=True,
+            )
+        except Exception as pin_err:
+            log.warning("Could not pin index message: %s", pin_err)
+        log.info("Posted new profiles index message %s", msg.message_id)
     except Exception as e:
         log.warning("Could not post profiles index message: %s", e)
 
@@ -189,7 +238,9 @@ async def main() -> None:
 
     # Post profiles-tab index message (if the topic is configured)
     if cfg.profiles_topic_id:
-        await post_profiles_index(bot, cfg.group_id, cfg.profiles_topic_id, bot_username)
+        await post_profiles_index(
+            bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
+        )
 
     try:
         if cfg.webhook_url and cfg.mode.value == "PROD":

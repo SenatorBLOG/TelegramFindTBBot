@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS destination_topics (
     topic_id    INTEGER NOT NULL,
     PRIMARY KEY (destination, year)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 # Columns added after initial release — applied idempotently to existing DBs.

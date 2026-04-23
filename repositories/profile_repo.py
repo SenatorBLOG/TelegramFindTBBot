@@ -71,14 +71,14 @@ class ProfileRepository:
                 UPDATE profiles SET
                     name=?, from_location=?, destination=?, dates=?, date_range=?,
                     budget=?, style=?, language=?, bio=?, photo_file_id=?, contact=?,
-                    updated_at=?
+                    status=?, updated_at=?
                 WHERE user_id=?
                 """,
                 (
                     profile.name, profile.from_location, profile.destination,
                     profile.dates, profile.date_range, profile.budget, profile.style,
                     profile.language, profile.bio, profile.photo_file_id, profile.contact,
-                    now, profile.user_id,
+                    profile.status, now, profile.user_id,
                 ),
             )
         else:

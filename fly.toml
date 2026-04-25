@@ -1,26 +1,32 @@
-# Fly.io configuration for Find the Travel Buddy bot
-# Polling mode — no HTTP port needed, persistent volume for SQLite.
+# fly.toml app configuration file generated for telegramfindtbbot on 2026-04-25T19:55:32Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "app-ancient-dust-8003"
-primary_region = "ams"      # Amsterdam — closest to Russia/Europe
+app = 'telegramfindtbbot'
+primary_region = 'yyz'
 
 [build]
-  # Use the same Python version as Render
-  # Fly auto-detects Python from runtime.txt
 
 [env]
-  MODE        = "PROD"
-  DB_PATH     = "/data/bot.db"
-  WEBHOOK_PATH = "/webhook"   # unused in polling, kept for config compat
+  DB_PATH = '/data/bot.db'
+  MODE = 'PROD'
+  WEBHOOK_PATH = '/webhook'
 
-# ── Persistent volume (free up to 3 GB on Fly.io) ──────────────────────────
-[mounts]
-  source      = "bot_data"    # volume name (created via: fly volumes create bot_data)
-  destination = "/data"
+[[mounts]]
+  source = 'bot_data'
+  destination = '/data'
 
-# ── No HTTP service — this runs as a background worker ─────────────────────
-# (polling bots don't need an open port)
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '256mb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256

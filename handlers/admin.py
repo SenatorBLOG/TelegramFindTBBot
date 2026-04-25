@@ -116,15 +116,20 @@ async def cb_approve(
     result = await profile_service.approve(user_id)
     if result:
         profile, link = result
+        topic_note = f'\n<a href="{link}">View topic</a>' if link else "\n⚠️ Topic creation failed — check bot admin rights."
         await cb.message.edit_text(
-            f"✅ Approved: <b>{profile.name}</b> → {profile.destination}\n"
-            f'<a href="{link}">View topic</a>',
+            f"✅ Approved: <b>{profile.name}</b> → {profile.destination}{topic_note}",
             disable_web_page_preview=True,
         )
         try:
+            user_text = (
+                f'🎉 Your profile was approved!\n<a href="{link}">Open your destination chat</a>'
+                if link else
+                "🎉 Your profile was approved! It will appear in the group chat shortly."
+            )
             await bot.send_message(
                 chat_id=user_id,
-                text=f'🎉 Your profile was approved!\n<a href="{link}">Open your topic</a>',
+                text=user_text,
                 disable_web_page_preview=True,
             )
         except Exception as e:

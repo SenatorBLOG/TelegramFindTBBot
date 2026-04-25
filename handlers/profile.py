@@ -272,17 +272,23 @@ async def _publish_immediately(
     try:
         _, link = await profile_service.save_and_publish(profile)
     except Exception:
-        log.exception("Failed to publish profile")
-        await message.answer(
-            "❌ Something went wrong.\n\n"
-            "Make sure the bot is an admin in the group with forum topics enabled."
-        )
+        log.exception("Failed to save profile")
+        await message.answer("❌ Something went wrong saving your profile. Please try again.")
         return
-    await message.answer(
-        "✅ <b>Profile saved!</b>\n\n"
-        f'Your topic: <a href="{link}">Open chat</a>',
-        disable_web_page_preview=True,
-    )
+
+    if link:
+        await message.answer(
+            "✅ <b>Profile saved!</b>\n\n"
+            f'Find travel buddies: <a href="{link}">Open your destination chat</a>',
+            disable_web_page_preview=True,
+        )
+    else:
+        await message.answer(
+            "✅ <b>Profile saved!</b>\n\n"
+            "⏳ Your card will appear in the group chat shortly — "
+            "the bot is setting up the destination topic.\n\n"
+            "Use /myprofile to check your profile anytime."
+        )
 
 
 async def _submit_for_moderation(

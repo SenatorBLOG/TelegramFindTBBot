@@ -258,6 +258,21 @@ async def main() -> None:
             await storage.close()
 
 
+async def _keepalive(webhook_url: str) -> None:
+    """Ping our own health endpoint every 10 min to prevent Render free-tier spindown."""
+    import aiohttp
+    base = webhook_url.rstrip("/")
+    while True:
+        await asyncio.sleep(600)  # 10 minutes
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base}/health", timeout=aiohttp.ClientTimeout(total=10)):
+                    pass
+            log.debug("Keepalive ping sent")
+        except Exception as e:
+            log.warning("Keepalive ping failed: %s", e)
+
+
 async def _run_webhook(bot: Bot, dp, cfg: Config) -> None:
     from aiohttp import web
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -270,11 +285,21 @@ async def _run_webhook(bot: Bot, dp, cfg: Config) -> None:
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=cfg.webhook_path)
     setup_application(app, dp, bot=bot)
 
+    # Health-check endpoint — Render pings this to confirm the service is alive.
+    async def health(_: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=cfg.webhook_port)
     await site.start()
     log.info("Webhook server on port %s", cfg.webhook_port)
+
+    # Keep Render free tier alive by self-pinging every 10 min
+    asyncio.create_task(_keepalive(cfg.webhook_url))
 
     await asyncio.Event().wait()  # run until interrupted
 

@@ -50,22 +50,44 @@ class ProfileService:
 
     # ─────────── publish flow ───────────
 
-    async def save_and_publish(self, profile: UserProfile) -> tuple[UserProfile, str]:
-        """Upsert profile → post/update card in destination topic → return (saved, link)."""
+    async def save_and_publish(self, profile: UserProfile) -> tuple[UserProfile, str | None]:
+        """Upsert profile → post/update card in destination topic → return (saved, link).
+
+        The profile is always saved to the database first.
+        If posting to the group topic fails (bot not admin, topics disabled, etc.),
+        the profile remains saved with status='active' but topic_id=None.
+        In this case link is returned as None instead of raising.
+        """
         saved = await self._profiles.upsert(profile)
-        topic_id = await self._resolve_topic(saved)
+
+        try:
+            topic_id = await self._resolve_topic(saved)
+        except Exception as e:
+            log.error(
+                "Could not resolve/create destination topic for user=%s: %s",
+                saved.user_id, e,
+            )
+            return saved, None
+
         text = format_profile(saved)
 
-        # If profile already has a card in the same destination topic → update it.
-        # Otherwise (new profile, or destination changed) → delete old card + post fresh.
-        if saved.topic_id == topic_id and saved.last_message_id is not None:
-            msg_id = await self._topics.update_profile(
-                topic_id, saved.last_message_id, text, saved.photo_file_id
+        try:
+            # If profile already has a card in the same destination topic → update it.
+            # Otherwise (new profile, or destination changed) → delete old card + post fresh.
+            if saved.topic_id == topic_id and saved.last_message_id is not None:
+                msg_id = await self._topics.update_profile(
+                    topic_id, saved.last_message_id, text, saved.photo_file_id
+                )
+            else:
+                if saved.last_message_id is not None:
+                    await self._topics.delete_message(saved.last_message_id)
+                msg_id = await self._topics.send_profile(topic_id, text, saved.photo_file_id)
+        except Exception as e:
+            log.error(
+                "Could not post profile card for user=%s to topic=%s: %s",
+                saved.user_id, topic_id, e,
             )
-        else:
-            if saved.last_message_id is not None:
-                await self._topics.delete_message(saved.last_message_id)
-            msg_id = await self._topics.send_profile(topic_id, text, saved.photo_file_id)
+            return saved, None
 
         await self._profiles.update_topic(saved.user_id, topic_id, msg_id)
         saved.topic_id = topic_id
@@ -81,7 +103,7 @@ class ProfileService:
         profile.status = "pending"
         return await self._profiles.upsert(profile)
 
-    async def approve(self, user_id: int) -> tuple[UserProfile, str] | None:
+    async def approve(self, user_id: int) -> tuple[UserProfile, str | None] | None:
         """Approve a pending profile: publish card to destination topic."""
         profile = await self._profiles.get_by_user_id(user_id)
         if not profile or profile.status != "pending":

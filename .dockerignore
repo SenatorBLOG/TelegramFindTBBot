@@ -1,0 +1,12 @@
+.venv
+.venv-1
+__pycache__
+*.pyc
+*.pyo
+data/
+.env
+.git
+docs/
+render.yaml
+fly.toml
+README.md

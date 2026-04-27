@@ -1,32 +1,24 @@
-# fly.toml app configuration file generated for telegramfindtbbot on 2026-04-25T19:55:32Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# fly.toml — Find the Travel Buddy bot
+# Polling mode: no HTTP service, persistent volume for SQLite.
 
 app = 'telegramfindtbbot'
 primary_region = 'yyz'
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
-  DB_PATH = '/data/bot.db'
-  MODE = 'PROD'
-  WEBHOOK_PATH = '/webhook'
+  MODE     = 'PROD'
+  DB_PATH  = '/data/bot.db'
 
 [[mounts]]
-  source = 'bot_data'
+  source      = 'bot_data'
   destination = '/data'
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+[processes]
+  app = "python main.py"
 
 [[vm]]
-  memory = '256mb'
+  memory   = '256mb'
   cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
+  cpus     = 1

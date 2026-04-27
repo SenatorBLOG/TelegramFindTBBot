@@ -148,6 +148,15 @@ async def post_profiles_index(
 
     # ── Post a brand-new message and remember its ID ───────────────────────
     try:
+        # Unpin everything in this topic first so we don't accumulate pinned messages
+        try:
+            await bot.unpin_all_forum_topic_messages(
+                chat_id=group_id,
+                message_thread_id=profiles_topic_id,
+            )
+        except Exception:
+            pass  # might fail if no messages pinned — that's fine
+
         msg = await bot.send_message(
             chat_id=group_id,
             message_thread_id=profiles_topic_id,
@@ -161,7 +170,7 @@ async def post_profiles_index(
             (_INDEX_KEY, str(msg.message_id)),
         )
         await db_conn.commit()
-        # Pin it so it stays at the top
+        # Pin only this one message
         try:
             await bot.pin_chat_message(
                 chat_id=group_id,

@@ -1,22 +1,39 @@
-"""Admin commands: /release, /stats, /moderation + approve/reject callbacks."""
+"""Admin commands: /release, /stats, /moderation, /import + approve/reject callbacks."""
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime
+from typing import Optional
 
+import aiohttp
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
 
+from models import UserProfile
 from repositories.profile_repo import ProfileRepository
 from services.profile_service import ProfileService
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
+
+_IMPORT_HELP = (
+    "📥 <b>Import a profile from Facebook</b>\n\n"
+    "Usage:\n"
+    "<code>/import Name | Destination | Dates | From | Budget | Style | Language | Bio | PhotoURL</code>\n\n"
+    "Fields after <b>Dates</b> are optional.\n\n"
+    "<b>Budget:</b> budget · medium · comfort · luxury\n"
+    "<b>Style:</b> backpacker · adventure · culture · relaxed · party · mixed\n\n"
+    "<b>Example:</b>\n"
+    "<code>/import Anna | Thailand | June 2026 | Moscow | medium | backpacker | English, Russian | Looking for a travel buddy in Phuket | https://example.com/photo.jpg</code>"
+)
 
 
 def _guard(user_id: int, admin_user_id: int) -> bool:
@@ -77,6 +94,107 @@ async def cmd_stats(
         f"🌍 <b>Top destinations:</b>\n{top or '  —'}\n\n"
         f"🧭 <b>Styles:</b> {styles or '—'}"
     )
+
+
+# ─────────── /import ───────────
+
+@router.message(Command("import"))
+async def cmd_import(
+    message: Message,
+    command: CommandObject,
+    bot: Bot,
+    admin_user_id: int,
+    profile_service: ProfileService,
+) -> None:
+    if not _guard(message.from_user.id, admin_user_id):
+        return
+
+    raw = (command.args or "").strip()
+    if not raw:
+        await message.answer(_IMPORT_HELP)
+        return
+
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) < 3:
+        await message.answer("⚠️ Need at least: Name | Destination | Dates\n\n" + _IMPORT_HELP)
+        return
+
+    name        = parts[0] or "Unknown"
+    destination = parts[1] or "Unknown"
+    dates       = parts[2] or "Flexible"
+    from_loc    = parts[3] if len(parts) > 3 else "Unknown"
+    budget      = parts[4] if len(parts) > 4 else "medium"
+    style       = parts[5] if len(parts) > 5 else "mixed"
+    language    = parts[6] if len(parts) > 6 else "English"
+    bio         = parts[7] if len(parts) > 7 else ""
+    photo_url   = parts[8].strip() if len(parts) > 8 else None
+
+    # ── Download & upload photo if URL provided ──────────────────────────────
+    photo_file_id: Optional[str] = None
+    if photo_url:
+        status_msg = await message.answer("⏳ Downloading photo…")
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(photo_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        photo_bytes = await resp.read()
+                        tmp = await bot.send_photo(
+                            chat_id=message.chat.id,
+                            photo=BufferedInputFile(photo_bytes, filename="photo.jpg"),
+                        )
+                        photo_file_id = tmp.photo[-1].file_id
+                        await bot.delete_message(chat_id=message.chat.id, message_id=tmp.message_id)
+                    else:
+                        await status_msg.edit_text(f"⚠️ Photo returned HTTP {resp.status} — importing without photo.")
+        except Exception as e:
+            log.warning("Photo download failed: %s", e)
+            await status_msg.edit_text(f"⚠️ Could not download photo ({e}) — importing without photo.")
+        else:
+            await bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
+
+    # ── Build profile (use negative timestamp as fake user_id) ───────────────
+    fake_user_id = -int(time.time() * 1000) % (10 ** 12)
+    now = datetime.utcnow()
+    profile = UserProfile(
+        id=None,
+        user_id=fake_user_id,
+        topic_id=None,
+        last_message_id=None,
+        name=name,
+        from_location=from_loc,
+        destination=destination,
+        dates=dates,
+        date_range=None,
+        budget=budget,
+        style=style,
+        language=language,
+        bio=bio,
+        photo_file_id=photo_file_id,
+        contact="Imported from Facebook",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+
+    try:
+        saved, link = await profile_service.save_and_publish(profile)
+    except Exception as e:
+        log.exception("Import failed")
+        await message.answer(f"❌ Import failed: {e}")
+        return
+
+    if link:
+        await message.answer(
+            f"✅ Imported: <b>{saved.name}</b> → {saved.destination}\n"
+            f'<a href="{link}">View in group</a>',
+            disable_web_page_preview=True,
+        )
+    else:
+        await message.answer(
+            f"✅ Imported: <b>{saved.name}</b> → {saved.destination}\n"
+            "⚠️ Profile saved but topic creation failed — check bot admin rights."
+        )
 
 
 # ─────────── /moderation ───────────

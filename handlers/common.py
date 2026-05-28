@@ -33,7 +33,8 @@ HELP = (
     "<i>Admin only:</i>\n"
     "/release — post an announcement\n"
     "/stats — usage statistics\n"
-    "/moderation — review pending profiles"
+    "/moderation — review pending profiles\n"
+    "/import — import a profile from Facebook"
 )
 
 

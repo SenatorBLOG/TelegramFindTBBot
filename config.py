@@ -60,7 +60,19 @@ class Config:
             raise RuntimeError(f"ADMIN_USER_ID must be an integer, got: {admin_raw}") from e
 
         db_path = Path(os.getenv("DB_PATH", "data/bot.db"))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            # Persistent disk not mounted yet (e.g. Render/Fly disk not attached).
+            # Fall back to a local path so the bot starts rather than crashing.
+            import logging as _log
+            _log.warning(
+                "Cannot create directory %s — disk not mounted. "
+                "Falling back to data/bot.db (data will not persist across restarts).",
+                db_path.parent,
+            )
+            db_path = Path("data/bot.db")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
 
         moderation = os.getenv("MODERATION", "false").strip().lower() == "true"
 

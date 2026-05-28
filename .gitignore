@@ -27,3 +27,5 @@ data/
 .vscode/
 *.swp
 .DS_Store
+
+.history

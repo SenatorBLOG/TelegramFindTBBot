@@ -242,20 +242,13 @@ async def main() -> None:
     dp.include_router(admin.router)
     dp.include_router(group_handler.router)
 
-    # Startup permission check (non-fatal — just logs warnings)
-    await check_permissions(bot, cfg.group_id)
-
-    # Post profiles-tab index message (if the topic is configured)
-    if cfg.profiles_topic_id:
-        await post_profiles_index(
-            bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
-        )
-
     try:
         if cfg.webhook_url and cfg.mode.value == "PROD":
-            await _run_webhook(bot, dp, cfg)
+            await _run_webhook(bot, dp, cfg, db, bot_username)
         else:
             await bot.delete_webhook(drop_pending_updates=True)
+            # Background startup tasks for polling mode
+            asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
             await dp.start_polling(
                 bot, allowed_updates=dp.resolve_used_update_types()
             )
@@ -265,6 +258,15 @@ async def main() -> None:
         storage = dp.storage
         if hasattr(storage, "close"):
             await storage.close()
+
+
+async def _startup_tasks(bot, cfg, db, bot_username: str) -> None:
+    """Non-critical startup tasks — run after server is ready."""
+    await check_permissions(bot, cfg.group_id)
+    if cfg.profiles_topic_id:
+        await post_profiles_index(
+            bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
+        )
 
 
 async def _keepalive(webhook_url: str) -> None:
@@ -282,32 +284,33 @@ async def _keepalive(webhook_url: str) -> None:
             log.warning("Keepalive ping failed: %s", e)
 
 
-async def _run_webhook(bot: Bot, dp, cfg: Config) -> None:
+async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None:
     from aiohttp import web
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-
-    url = f"{cfg.webhook_url.rstrip('/')}{cfg.webhook_path}"
-    await bot.set_webhook(url=url, drop_pending_updates=True)
-    log.info("Webhook set → %s", url)
 
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=cfg.webhook_path)
     setup_application(app, dp, bot=bot)
 
-    # Health-check endpoint — Render pings this to confirm the service is alive.
     async def health(_: web.Request) -> web.Response:
         return web.Response(text="ok")
 
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
 
+    # ── Start HTTP server FIRST so Fly.io health checks pass immediately ──────
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=cfg.webhook_port)
     await site.start()
-    log.info("Webhook server on port %s", cfg.webhook_port)
+    log.info("HTTP server listening on 0.0.0.0:%s", cfg.webhook_port)
 
-    # Keep Render free tier alive by self-pinging every 10 min
+    # ── Then register webhook and run startup tasks in background ─────────────
+    url = f"{cfg.webhook_url.rstrip('/')}{cfg.webhook_path}"
+    await bot.set_webhook(url=url, drop_pending_updates=True)
+    log.info("Webhook set → %s", url)
+
+    asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
     asyncio.create_task(_keepalive(cfg.webhook_url))
 
     await asyncio.Event().wait()  # run until interrupted

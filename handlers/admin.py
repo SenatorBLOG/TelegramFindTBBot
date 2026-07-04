@@ -20,6 +20,7 @@ from aiogram.types import (
 from models import UserProfile
 from repositories.profile_repo import ProfileRepository
 from services.profile_service import ProfileService
+from utils.formatters import esc
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
@@ -153,8 +154,11 @@ async def cmd_import(
         else:
             await bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
 
-    # ── Build profile (use negative timestamp as fake user_id) ───────────────
-    fake_user_id = -int(time.time() * 1000) % (10 ** 12)
+    # ── Build profile (fake NEGATIVE user_id so it never collides with a real
+    #    Telegram id, which are always positive). Note the parentheses: Python's
+    #    % on a negative operand yields a positive result, so the negation must
+    #    wrap the whole modulo, not just the left operand. ──────────────────────
+    fake_user_id = -(int(time.time() * 1000) % (10 ** 12))
     now = datetime.utcnow()
     profile = UserProfile(
         id=None,
@@ -186,13 +190,13 @@ async def cmd_import(
 
     if link:
         await message.answer(
-            f"✅ Imported: <b>{saved.name}</b> → {saved.destination}\n"
+            f"✅ Imported: <b>{esc(saved.name)}</b> → {esc(saved.destination)}\n"
             f'<a href="{link}">View in group</a>',
             disable_web_page_preview=True,
         )
     else:
         await message.answer(
-            f"✅ Imported: <b>{saved.name}</b> → {saved.destination}\n"
+            f"✅ Imported: <b>{esc(saved.name)}</b> → {esc(saved.destination)}\n"
             "⚠️ Profile saved but topic creation failed — check bot admin rights."
         )
 
@@ -215,7 +219,7 @@ async def cmd_moderation(
             InlineKeyboardButton(text="❌ Reject",  callback_data=f"mod_reject:{p.user_id}"),
         ]])
         await message.answer(
-            f"<b>{p.name}</b> → {p.destination} → {p.dates}",
+            f"<b>{esc(p.name)}</b> → {esc(p.destination)} → {esc(p.dates)}",
             reply_markup=kb,
         )
 
@@ -236,7 +240,7 @@ async def cb_approve(
         profile, link = result
         topic_note = f'\n<a href="{link}">View topic</a>' if link else "\n⚠️ Topic creation failed — check bot admin rights."
         await cb.message.edit_text(
-            f"✅ Approved: <b>{profile.name}</b> → {profile.destination}{topic_note}",
+            f"✅ Approved: <b>{esc(profile.name)}</b> → {esc(profile.destination)}{topic_note}",
             disable_web_page_preview=True,
         )
         try:
@@ -267,7 +271,7 @@ async def cb_reject(
     user_id = int(cb.data.split(":", 1)[1])
     profile = await profile_service.reject(user_id)
     if profile:
-        await cb.message.edit_text(f"❌ Rejected: <b>{profile.name}</b>")
+        await cb.message.edit_text(f"❌ Rejected: <b>{esc(profile.name)}</b>")
         try:
             await bot.send_message(
                 chat_id=user_id,

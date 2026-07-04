@@ -19,6 +19,7 @@ from keyboards.search_kb import (
 )
 from services.search_service import SearchService, PAGE_SIZE
 from states.search_states import SearchFSM
+from utils.formatters import esc
 
 router = Router(name="search")
 
@@ -185,7 +186,7 @@ async def _show_page(
     buttons: list[list[InlineKeyboardButton]] = []
 
     for r in results:
-        lines.append(f"• <b>{r.name}</b> → {r.destination} → {r.dates}")
+        lines.append(f"• <b>{esc(r.name)}</b> → {esc(r.destination)} → {esc(r.dates)}")
         buttons.append([
             InlineKeyboardButton(text=f"💬 Chat with {r.name}", url=r.topic_link)
         ])

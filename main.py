@@ -289,7 +289,9 @@ async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
     app = web.Application()
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=cfg.webhook_path)
+    SimpleRequestHandler(
+        dispatcher=dp, bot=bot, secret_token=cfg.webhook_secret
+    ).register(app, path=cfg.webhook_path)
     setup_application(app, dp, bot=bot)
 
     async def health(_: web.Request) -> web.Response:
@@ -307,8 +309,17 @@ async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None
 
     # ── Then register webhook and run startup tasks in background ─────────────
     url = f"{cfg.webhook_url.rstrip('/')}{cfg.webhook_path}"
-    await bot.set_webhook(url=url, drop_pending_updates=True)
-    log.info("Webhook set → %s", url)
+    await bot.set_webhook(
+        url=url, secret_token=cfg.webhook_secret, drop_pending_updates=True
+    )
+    if cfg.webhook_secret:
+        log.info("Webhook set (secured with secret_token) → %s", url)
+    else:
+        log.warning(
+            "Webhook set WITHOUT secret_token → %s — set WEBHOOK_SECRET to "
+            "reject forged updates. See docs/DEVELOPMENT_PLAN.md P0-1.",
+            url,
+        )
 
     asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
     asyncio.create_task(_keepalive(cfg.webhook_url))

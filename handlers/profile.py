@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from html import escape
 from typing import Optional
 
 from aiogram import Bot, F, Router
@@ -42,10 +43,13 @@ _limiter = RateLimiter(max_calls=8, window_seconds=20.0)
 
 
 def _auto_contact(user: User) -> str:
-    """Build a contact string from Telegram user data (never asks the user for it)."""
+    """Build a contact string from Telegram user data (never asks the user for it).
+
+    full_name is HTML-escaped because it renders inside a parse_mode=HTML card.
+    """
     if user.username:
         return f"@{user.username}"
-    return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+    return f'<a href="tg://user?id={user.id}">{escape(user.full_name)}</a>'
 
 
 # ─────────── /profile ───────────

@@ -27,6 +27,7 @@ class Config:
     webhook_url: Optional[str]
     webhook_path: str
     webhook_port: int
+    webhook_secret: Optional[str]
 
     @classmethod
     def load(cls) -> "Config":
@@ -88,6 +89,10 @@ class Config:
         except ValueError:
             webhook_port = 10000
 
+        # Shared secret Telegram echoes back in the X-Telegram-Bot-Api-Secret-Token
+        # header; lets aiogram reject forged webhook POSTs with 401.
+        webhook_secret = os.getenv("WEBHOOK_SECRET", "").strip() or None
+
         return cls(
             bot_token=bot_token,
             mode=mode,
@@ -99,4 +104,5 @@ class Config:
             webhook_url=webhook_url,
             webhook_path=webhook_path,
             webhook_port=webhook_port,
+            webhook_secret=webhook_secret,
         )

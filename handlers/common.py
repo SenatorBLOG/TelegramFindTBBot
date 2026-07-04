@@ -34,6 +34,7 @@ HELP = (
     "/release — post an announcement\n"
     "/stats — usage statistics\n"
     "/moderation — review pending profiles\n"
+    "/spamlog — recently deleted spam\n"
     "/import — import a profile from Facebook"
 )
 

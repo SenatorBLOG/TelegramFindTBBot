@@ -15,12 +15,14 @@ from db import Database
 from handlers import admin, common, profile, search
 from handlers import group as group_handler
 from repositories.destination_topic_repo import DestinationTopicRepository
+from repositories.moderation_repo import ModerationRepository
 from repositories.profile_repo import ProfileRepository
 from repositories.user_repo import UserRepository
 from services.profile_service import ProfileService
 from services.search_service import SearchService
 from services.topic_service import TopicService
-from utils.word_filter import is_spam
+from utils.formatters import esc
+from utils.word_filter import contains_link, is_spam, spam_reason
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +49,15 @@ class TrackUserMiddleware(BaseMiddleware):
 
 
 class SpamMiddleware(BaseMiddleware):
-    """Drop messages that contain blocked words; delete if bot has rights."""
+    """Delete spam in the group and alert the admin.
+
+    Two layers:
+      1. Hard spam (banned words / invite links) — deleted for everyone.
+      2. Newcomer quarantine — a member in their first few messages / first 24h
+         may not post links; established members can.
+    Also runs on edited_message so "post benign, edit into spam" is caught.
+    Only enforced inside the configured group; private chats are left alone.
+    """
 
     async def __call__(
         self,
@@ -55,20 +65,81 @@ class SpamMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if isinstance(event, Message) and is_spam(event.text or event.caption):
-            bot: Bot = data["bot"]
-            log.info(
-                "Spam blocked user=%s",
-                event.from_user.id if event.from_user else "?",
-            )
+        if not isinstance(event, Message):
+            return await handler(event, data)
+
+        group_id: int | None = data.get("group_id")
+        user = event.from_user
+        # Only police the configured group, and never the bot's own messages.
+        if event.chat.id != group_id or not user or user.is_bot:
+            return await handler(event, data)
+
+        mod: ModerationRepository | None = data.get("mod_repo")
+        text = event.text or event.caption
+
+        reason = spam_reason(text)
+        if reason is None and mod is not None:
             try:
-                await bot.delete_message(
-                    chat_id=event.chat.id, message_id=event.message_id
+                is_new = await mod.touch_member(event.chat.id, user.id)
+            except Exception as e:
+                log.warning("touch_member failed: %s", e)
+                is_new = False
+            if is_new and contains_link(text):
+                reason = "newcomer-link"
+
+        if reason is None:
+            return await handler(event, data)
+
+        # ── It's spam: delete, log, alert admin, halt the chain ──────────────
+        bot: Bot = data["bot"]
+        log.info("Spam blocked user=%s reason=%s", user.id, reason)
+        try:
+            await bot.delete_message(chat_id=event.chat.id, message_id=event.message_id)
+        except Exception as e:
+            log.warning("Could not delete spam message: %s", e)
+
+        log_id: int | None = None
+        if mod is not None:
+            try:
+                log_id = await mod.log_spam(
+                    event.chat.id, user.id, user.username, text, reason
                 )
-            except Exception:
-                pass
-            return  # halt the handler chain
-        return await handler(event, data)
+            except Exception as e:
+                log.warning("log_spam failed: %s", e)
+
+        await self._alert_admin(bot, data, event, user, text, reason, log_id)
+        return  # halt — do not pass spam to handlers
+
+    async def _alert_admin(self, bot, data, event, user, text, reason, log_id) -> None:
+        admin_id: int | None = data.get("admin_user_id")
+        if not admin_id:
+            return
+        who = f"@{user.username}" if user.username else esc(user.full_name)
+        preview = esc((text or "")[:300]) or "<i>(no text — media/caption)</i>"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🔨 Ban user",
+                callback_data=f"spam_ban:{event.chat.id}:{user.id}",
+            ),
+            InlineKeyboardButton(
+                text="✅ Not spam",
+                callback_data=f"spam_ok:{log_id or 0}",
+            ),
+        ]])
+        try:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=(
+                    f"🧹 <b>Spam deleted</b>\n\n"
+                    f"👤 {who} (<code>{user.id}</code>)\n"
+                    f"🏷 Reason: <code>{esc(reason)}</code>\n\n"
+                    f"{preview}"
+                ),
+                reply_markup=kb,
+                disable_web_page_preview=True,
+            )
+        except Exception as e:
+            log.warning("Could not alert admin about spam: %s", e)
 
 
 # ─────────── startup permission check ───────────
@@ -204,6 +275,7 @@ async def main() -> None:
     profile_repo = ProfileRepository(db.conn)
     user_repo = UserRepository(db.conn)
     dest_topic_repo = DestinationTopicRepository(db.conn)
+    mod_repo = ModerationRepository(db.conn)
 
     # Bot + Dispatcher (FSM stored in a separate SQLite file)
     fsm_path = cfg.db_path.parent / "fsm.db"
@@ -229,11 +301,15 @@ async def main() -> None:
     dp["moderation"] = cfg.moderation
     dp["bot_username"] = bot_username
     dp["profiles_topic_id"] = cfg.profiles_topic_id
+    dp["mod_repo"] = mod_repo
 
-    # Class-based middlewares
+    # Class-based middlewares.
+    # Spam runs FIRST (outer) so spammers are dropped before TrackUser records
+    # them, and it also guards edited_message ("post benign, edit into spam").
+    dp.message.outer_middleware(SpamMiddleware())
+    dp.edited_message.outer_middleware(SpamMiddleware())
     dp.message.outer_middleware(TrackUserMiddleware())
     dp.callback_query.outer_middleware(TrackUserMiddleware())
-    dp.message.outer_middleware(SpamMiddleware())
 
     # Routers
     dp.include_router(common.router)
@@ -310,7 +386,10 @@ async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None
     # ── Then register webhook and run startup tasks in background ─────────────
     url = f"{cfg.webhook_url.rstrip('/')}{cfg.webhook_path}"
     await bot.set_webhook(
-        url=url, secret_token=cfg.webhook_secret, drop_pending_updates=True
+        url=url,
+        secret_token=cfg.webhook_secret,
+        allowed_updates=dp.resolve_used_update_types(),
+        drop_pending_updates=True,
     )
     if cfg.webhook_secret:
         log.info("Webhook set (secured with secret_token) → %s", url)

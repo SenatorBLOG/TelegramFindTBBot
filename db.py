@@ -51,6 +51,26 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Per-group membership tenure, used to quarantine brand-new members.
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id    INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    first_seen TEXT NOT NULL,
+    msg_count  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (chat_id, user_id)
+);
+
+-- Audit trail of deleted spam, surfaced to the admin via /spamlog.
+CREATE TABLE IF NOT EXISTS spam_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    INTEGER,
+    user_id    INTEGER,
+    username   TEXT,
+    text       TEXT,
+    reason     TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 # Columns added after initial release — applied idempotently to existing DBs.

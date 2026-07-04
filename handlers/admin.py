@@ -18,6 +18,7 @@ from aiogram.types import (
 )
 
 from models import UserProfile
+from repositories.moderation_repo import ModerationRepository
 from repositories.profile_repo import ProfileRepository
 from services.profile_service import ProfileService
 from utils.formatters import esc
@@ -281,3 +282,55 @@ async def cb_reject(
             log.warning("Could not notify user %s: %s", user_id, e)
     else:
         await cb.message.edit_text("⚠️ Profile not found.")
+
+
+# ─────────── spam moderation (buttons on the "Spam deleted" alert) ───────────
+
+@router.callback_query(F.data.startswith("spam_ban:"))
+async def cb_spam_ban(cb: CallbackQuery, bot: Bot, admin_user_id: int) -> None:
+    if not _guard(cb.from_user.id, admin_user_id):
+        await cb.answer("Not authorised.", show_alert=True)
+        return
+    _, chat_id_s, user_id_s = cb.data.split(":")
+    chat_id, user_id = int(chat_id_s), int(user_id_s)
+    try:
+        await bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+        await cb.answer("Banned.")
+        await cb.message.edit_text(cb.message.html_text + "\n\n🔨 <b>User banned.</b>")
+    except Exception as e:
+        await cb.answer("Ban failed.", show_alert=True)
+        log.warning("Ban failed for user=%s: %s", user_id, e)
+
+
+@router.callback_query(F.data.startswith("spam_ok:"))
+async def cb_spam_ok(cb: CallbackQuery, admin_user_id: int) -> None:
+    if not _guard(cb.from_user.id, admin_user_id):
+        await cb.answer("Not authorised.", show_alert=True)
+        return
+    await cb.answer("Marked as not spam.")
+    await cb.message.edit_text(
+        cb.message.html_text
+        + "\n\n✅ <b>Marked not spam.</b> <i>(message was already deleted — "
+        "tune the filter in utils/word_filter.py if this recurs)</i>"
+    )
+
+
+# ─────────── /spamlog ───────────
+
+@router.message(Command("spamlog"))
+async def cmd_spamlog(
+    message: Message, admin_user_id: int, mod_repo: ModerationRepository
+) -> None:
+    if not _guard(message.from_user.id, admin_user_id):
+        return
+    rows = await mod_repo.recent_spam(limit=20)
+    if not rows:
+        await message.answer("✅ No spam logged yet.")
+        return
+    lines = ["🧹 <b>Recent spam (last 20)</b>\n"]
+    for r in rows:
+        who = f"@{r['username']}" if r["username"] else f"id{r['user_id']}"
+        when = (r["created_at"] or "")[:16].replace("T", " ")
+        snippet = esc((r["text"] or "")[:60])
+        lines.append(f"• <code>{esc(r['reason'])}</code> {esc(who)} {when}\n  {snippet}")
+    await message.answer("\n".join(lines), disable_web_page_preview=True)

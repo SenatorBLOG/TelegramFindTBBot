@@ -43,3 +43,15 @@ async def group_topic_message(
             await bot.delete_message(group_id, message.message_id)
         except Exception as e:
             log.debug("Could not delete message in landing topic: %s", e)
+
+
+@router.edited_message(F.chat.type.in_({"group", "supergroup"}))
+async def group_edited_message(message: Message) -> None:
+    """No-op handler.
+
+    Spam in edited messages is deleted by SpamMiddleware (registered on
+    dp.edited_message). This handler exists only so aiogram advertises
+    "edited_message" in allowed_updates, ensuring Telegram delivers those
+    updates to the middleware in the first place.
+    """
+    return

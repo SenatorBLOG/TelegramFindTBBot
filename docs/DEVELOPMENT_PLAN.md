@@ -6,7 +6,29 @@
 
 ---
 
-## P0 — Дыры в безопасности (чинить немедленно)
+## ✅ Прогресс
+
+- **P0 — ВЕСЬ ТИР ГОТОВ В КОДЕ** (июль 2026, коммиты `e06d5b1`, `da1d161`, `327508d`):
+  P0-1 (webhook secret_token), P0-2 (HTML-эскейпинг), P0-3a (антиспам-фильтр:
+  нормализация/RU/ссылки), P0-3b (карантин новичков + edited_message +
+  уведомления админу + `/spamlog`), P0-4 (fake_user_id).
+  **Осталось руками (P0-5 + активация):** см. блок «Действия для деплоя» ниже.
+- **P1–P3:** не начаты.
+
+### Действия для деплоя (обязательно, руками)
+
+1. `flyctl secrets set WEBHOOK_SECRET="<32-байтный секрет>" -a telegramfindtbbot`
+   (без этого secret_token не активируется — бот логирует WARNING и работает
+   как раньше). Сгенерировать: `python -c "import secrets;print(secrets.token_urlsafe(32))"`.
+2. `flyctl deploy` — применит новые таблицы (`chat_members`, `spam_log`) и код.
+3. **P0-5:** @BotFather `/revoke` → новый `BOT_TOKEN` (старый засветился) →
+   `flyctl secrets set BOT_TOKEN="..."`; перевесить UptimeRobot с мёртвого
+   Render-URL на `https://telegramfindtbbot.fly.dev/health`.
+4. Проверка: `curl -X POST https://telegramfindtbbot.fly.dev/webhook -d '{}'` → 401.
+
+---
+
+## P0 — Дыры в безопасности ✅ ГОТОВО (см. блок «Прогресс»)
 
 ### P0-1. Webhook без secret_token — можно подделать любой апдейт ⚠️ КРИТИЧНО
 

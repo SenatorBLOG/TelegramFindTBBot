@@ -7,6 +7,7 @@ import sys
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
 from bot import make_bot, make_dispatcher
@@ -214,8 +215,25 @@ async def post_profiles_index(
             )
             log.info("Edited profiles index message %s", row[0])
             return
-        except Exception:
-            pass  # message was deleted — fall through and post a fresh one
+        except TelegramBadRequest as e:
+            desc = str(e).lower()
+            if "message is not modified" in desc:
+                # Content already identical (the usual case on a plain restart).
+                # The message is present and correct — do NOT repost.
+                log.info("Index message %s already up to date", row[0])
+                return
+            if "not found" in desc or "can't be edited" in desc or "to edit" in desc:
+                # The stored message was genuinely deleted — fall through to
+                # post exactly one fresh copy.
+                log.info("Index message %s is gone (%s) — reposting once", row[0], e)
+            else:
+                # Unknown edit failure: refuse to repost so we never spam the
+                # group with duplicates. Keep the stored id and bail out.
+                log.warning("Index edit failed, NOT reposting to avoid duplicates: %s", e)
+                return
+        except Exception as e:
+            log.warning("Index edit error, NOT reposting to avoid duplicates: %s", e)
+            return
 
     # ── Post a brand-new message and remember its ID ───────────────────────
     try:

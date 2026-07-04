@@ -36,6 +36,7 @@ from services.profile_service import ProfileService
 from states.profile_states import ProfileFSM
 from utils.formatters import format_profile
 from utils.rate_limiter import RateLimiter
+from utils.word_filter import is_spam
 
 log = logging.getLogger(__name__)
 router = Router(name="profile")
@@ -242,6 +243,17 @@ async def _finalize(
     await state.update_data(contact=contact)
     data = await state.get_data()
     await state.clear()
+
+    # Anti-spam: block obvious spam in the free-text fields even when moderation
+    # is off (otherwise it would auto-publish straight into a destination topic).
+    for field in ("name", "from_location", "destination", "bio"):
+        if is_spam(data.get(field)):
+            log.info("Blocked spammy profile from user=%s (field=%s)", user.id, field)
+            await reply_target.answer(
+                "🚫 Your profile looks like spam and was not published. "
+                "Remove promotional or banned content and try /profile again."
+            )
+            return
 
     profile = UserProfile(
         id=None,

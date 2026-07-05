@@ -363,21 +363,6 @@ async def _startup_tasks(bot, cfg, db, bot_username: str) -> None:
         )
 
 
-async def _keepalive(webhook_url: str) -> None:
-    """Ping our own health endpoint every 10 min to prevent Render free-tier spindown."""
-    import aiohttp
-    base = webhook_url.rstrip("/")
-    while True:
-        await asyncio.sleep(600)  # 10 minutes
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{base}/health", timeout=aiohttp.ClientTimeout(total=10)):
-                    pass
-            log.debug("Keepalive ping sent")
-        except Exception as e:
-            log.warning("Keepalive ping failed: %s", e)
-
-
 async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None:
     from aiohttp import web
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -419,7 +404,6 @@ async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None
         )
 
     asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
-    asyncio.create_task(_keepalive(cfg.webhook_url))
 
     await asyncio.Event().wait()  # run until interrupted
 

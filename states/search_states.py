@@ -7,3 +7,4 @@ class SearchFSM(StatesGroup):
     date_range = State()
     budget = State()
     style = State()
+    paging = State()      # results shown; filters kept in FSM data for pagination

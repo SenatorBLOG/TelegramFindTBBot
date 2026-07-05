@@ -24,9 +24,6 @@ from utils.formatters import esc
 
 router = Router(name="search")
 
-# In-memory cache: user_id → (destination, date_range, budget, style)
-_search_cache: dict[int, tuple[str | None, str | None, str | None, str | None]] = {}
-
 
 # ─────────── /search ───────────
 
@@ -133,7 +130,7 @@ async def sstyle_cb(
 ) -> None:
     await cb.answer()
     await state.update_data(style=cb.data.split(":", 1)[1])
-    await _run_search(cb.message, state, search_service, cb.from_user.id)
+    await _run_search(cb.message, state, search_service)
 
 
 @router.callback_query(SearchFSM.style, F.data == "skip")
@@ -141,46 +138,46 @@ async def sstyle_skip(
     cb: CallbackQuery, state: FSMContext, search_service: SearchService
 ) -> None:
     await cb.answer()
-    await _run_search(cb.message, state, search_service, cb.from_user.id)
+    await _run_search(cb.message, state, search_service)
 
 
 async def _run_search(
-    message: Message, state: FSMContext, search_service: SearchService, user_id: int
+    message: Message, state: FSMContext, search_service: SearchService
 ) -> None:
     data = await state.get_data()
-    await state.clear()
-
-    params = (
-        data.get("destination"),
-        data.get("date_range"),
-        data.get("budget"),
-        data.get("style"),
-    )
-    _search_cache[user_id] = params
-    await _show_page(message, search_service, user_id, offset=0)
+    # Keep the chosen filters in FSM data (survives restart; scoped per user)
+    # and switch to the paging state so wizard-step handlers stop matching.
+    filters = {
+        "destination": data.get("destination"),
+        "date_range": data.get("date_range"),
+        "budget": data.get("budget"),
+        "style": data.get("style"),
+    }
+    await state.set_state(SearchFSM.paging)
+    await state.set_data({"filters": filters})
+    await _show_page(message, state, search_service, offset=0)
 
 
 # ─────────── pagination ───────────
 
 async def _show_page(
     message: Message,
+    state: FSMContext,
     search_service: SearchService,
-    user_id: int,
     offset: int,
 ) -> None:
-    params = _search_cache.get(user_id)
-    if params is None:
+    data = await state.get_data()
+    filters = data.get("filters")
+    if not filters:
         await message.answer("Search session expired. Please /search again.")
         return
 
-    destination, date_range, budget, style = params
-
     # Fetch one extra to detect whether there's a next page
     results = await search_service.search(
-        destination=destination,
-        date_range=date_range,
-        budget=budget,
-        style=style,
+        destination=filters.get("destination"),
+        date_range=filters.get("date_range"),
+        budget=filters.get("budget"),
+        style=filters.get("style"),
         limit=PAGE_SIZE + 1,
         offset=offset,
     )
@@ -209,7 +206,7 @@ async def _show_page(
     if has_more:
         buttons.append([InlineKeyboardButton(
             text=f"👉 Next {PAGE_SIZE}",
-            callback_data=f"sp:{user_id}:{offset + PAGE_SIZE}",
+            callback_data=f"sp:{offset + PAGE_SIZE}",
         )])
 
     await message.answer(
@@ -220,9 +217,9 @@ async def _show_page(
 
 
 @router.callback_query(F.data.startswith("sp:"))
-async def search_next_page(cb: CallbackQuery, search_service: SearchService) -> None:
+async def search_next_page(
+    cb: CallbackQuery, state: FSMContext, search_service: SearchService
+) -> None:
     await cb.answer()
-    parts = cb.data.split(":")
-    user_id = int(parts[1])
-    offset = int(parts[2])
-    await _show_page(cb.message, search_service, user_id, offset)
+    offset = int(cb.data.split(":", 1)[1])
+    await _show_page(cb.message, state, search_service, offset)

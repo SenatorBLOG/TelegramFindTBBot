@@ -1,7 +1,7 @@
 """SQL access layer for the `profiles` table."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import aiosqlite
@@ -181,6 +181,26 @@ class ProfileRepository:
 
         async with self._conn.execute("SELECT COUNT(*) FROM users") as cur:
             stats["total_users"] = (await cur.fetchone())[0]
+
+        # Users who actually opened a DM with the bot (the meaningful count).
+        async with self._conn.execute(
+            "SELECT COUNT(*) FROM users WHERE interacted_privately = 1"
+        ) as cur:
+            stats["dm_users"] = (await cur.fetchone())[0]
+
+        # New DM users in the last 7 days.
+        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        async with self._conn.execute(
+            "SELECT COUNT(*) FROM users WHERE interacted_privately = 1 AND created_at >= ?",
+            (week_ago,),
+        ) as cur:
+            stats["dm_users_7d"] = (await cur.fetchone())[0]
+
+        # Profiles imported from Facebook carry a synthetic negative user_id.
+        async with self._conn.execute(
+            "SELECT COUNT(*) FROM profiles WHERE user_id < 0"
+        ) as cur:
+            stats["imported_profiles"] = (await cur.fetchone())[0]
 
         async with self._conn.execute(
             "SELECT destination, COUNT(*) cnt FROM profiles WHERE status='active' "

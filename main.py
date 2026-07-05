@@ -42,8 +42,15 @@ class TrackUserMiddleware(BaseMiddleware):
         user_repo: UserRepository | None = data.get("user_repo")
         user = getattr(event, "from_user", None)
         if user_repo and user and not user.is_bot:
+            # Distinguish a real DM interaction from merely writing in the group.
+            chat = getattr(event, "chat", None) or getattr(
+                getattr(event, "message", None), "chat", None
+            )
+            is_private = bool(chat and chat.type == "private")
             try:
-                await user_repo.upsert(user.id, user.username, user.first_name)
+                await user_repo.upsert(
+                    user.id, user.username, user.first_name, is_private=is_private
+                )
             except Exception as e:
                 log.warning("user_repo.upsert failed: %s", e)
         return await handler(event, data)

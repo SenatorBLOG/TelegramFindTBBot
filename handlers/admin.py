@@ -86,13 +86,16 @@ async def cmd_stats(
     if not _guard(message.from_user.id, admin_user_id):
         return
     s = await profile_repo.get_stats()
-    top = "\n".join(f"  • {d} ({c})" for d, c in s.get("top_destinations", []))
-    styles = "  ".join(f"{k}: {v}" for k, v in s.get("by_style", {}).items())
+    top = "\n".join(f"  • {esc(d)} ({c})" for d, c in s.get("top_destinations", []))
+    styles = "  ".join(f"{esc(k)}: {v}" for k, v in s.get("by_style", {}).items())
+    group_writers = s["total_users"] - s["dm_users"]
     await message.answer(
         f"📊 <b>Stats</b>\n\n"
-        f"👤 Total users: <b>{s['total_users']}</b>\n"
+        f"👤 Bot users (DM): <b>{s['dm_users']}</b>  (+{s['dm_users_7d']} this week)\n"
+        f"👥 Seen in group only: <b>{group_writers}</b>\n\n"
         f"✅ Active profiles: <b>{s['active_profiles']}</b>\n"
-        f"⏳ Pending: <b>{s['pending_profiles']}</b>\n\n"
+        f"⏳ Pending: <b>{s['pending_profiles']}</b>\n"
+        f"📥 Imported: <b>{s['imported_profiles']}</b>\n\n"
         f"🌍 <b>Top destinations:</b>\n{top or '  —'}\n\n"
         f"🧭 <b>Styles:</b> {styles or '—'}"
     )

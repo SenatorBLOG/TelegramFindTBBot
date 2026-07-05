@@ -10,10 +10,11 @@ log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id          INTEGER PRIMARY KEY,
-    username    TEXT,
-    first_name  TEXT,
-    created_at  TEXT NOT NULL
+    id                   INTEGER PRIMARY KEY,
+    username             TEXT,
+    first_name           TEXT,
+    created_at           TEXT NOT NULL,
+    interacted_privately INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -78,6 +79,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("profiles", "date_range",    "ALTER TABLE profiles ADD COLUMN date_range TEXT"),
     ("profiles", "photo_file_id", "ALTER TABLE profiles ADD COLUMN photo_file_id TEXT"),
     ("profiles", "status",        "ALTER TABLE profiles ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"),
+    ("users",    "interacted_privately", "ALTER TABLE users ADD COLUMN interacted_privately INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

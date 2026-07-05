@@ -1,7 +1,7 @@
 """Guided search wizard with 4 filter steps and pagination."""
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -19,6 +19,7 @@ from keyboards.search_kb import (
 )
 from services.search_service import SearchService, PAGE_SIZE
 from states.search_states import SearchFSM
+from utils.dm import is_private, redirect_to_dm
 from utils.formatters import esc
 
 router = Router(name="search")
@@ -30,7 +31,21 @@ _search_cache: dict[int, tuple[str | None, str | None, str | None, str | None]] 
 # ─────────── /search ───────────
 
 @router.message(Command("search"))
-async def cmd_search(message: Message, state: FSMContext) -> None:
+async def cmd_search(
+    message: Message, state: FSMContext, bot: Bot, bot_username: str
+) -> None:
+    if not is_private(message):
+        await redirect_to_dm(
+            message, bot, bot_username,
+            payload="search",
+            button_text="🔍 Open search",
+            hint="👆 Tap to search for travel buddies in a private chat with the bot.",
+        )
+        return
+    await _start_search(message, state)
+
+
+async def _start_search(message: Message, state: FSMContext) -> None:
     await state.clear()
     await state.set_state(SearchFSM.destination)
     await message.answer(

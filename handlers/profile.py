@@ -34,6 +34,7 @@ from keyboards.profile_kb import (
 from models import UserProfile
 from services.profile_service import ProfileService
 from states.profile_states import ProfileFSM
+from utils.dm import is_private, redirect_to_dm
 from utils.formatters import format_profile
 from utils.rate_limiter import RateLimiter
 from utils.word_filter import is_spam
@@ -57,19 +58,14 @@ def _auto_contact(user: User) -> str:
 
 @router.message(Command("profile"))
 async def cmd_profile(
-    message: Message, state: FSMContext, bot_username: str
+    message: Message, state: FSMContext, bot: Bot, bot_username: str
 ) -> None:
-    if message.chat.type != "private":
-        # Redirect to DM via deep link
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="📝 Open profile wizard",
-                url=f"https://t.me/{bot_username}?start=profile",
-            )
-        ]])
-        await message.answer(
-            "👆 Tap the button to fill in your profile in a private chat with the bot.",
-            reply_markup=kb,
+    if not is_private(message):
+        await redirect_to_dm(
+            message, bot, bot_username,
+            payload="profile",
+            button_text="📝 Open profile wizard",
+            hint="👆 Tap to fill in your profile in a private chat with the bot.",
         )
         return
 
@@ -344,7 +340,22 @@ async def _submit_for_moderation(
 # ─────────── /myprofile ───────────
 
 @router.message(Command("myprofile"))
-async def cmd_myprofile(message: Message, profile_service: ProfileService) -> None:
+async def cmd_myprofile(
+    message: Message, profile_service: ProfileService, bot: Bot, bot_username: str
+) -> None:
+    if not is_private(message):
+        await redirect_to_dm(
+            message, bot, bot_username,
+            payload="myprofile",
+            button_text="👤 View my profile",
+            hint="👆 Tap to view your profile privately.",
+        )
+        return
+    await render_my_profile(message, profile_service)
+
+
+async def render_my_profile(message: Message, profile_service: ProfileService) -> None:
+    """Show the caller their own profile (shared by /myprofile and start=myprofile)."""
     profile = await profile_service.get(message.from_user.id)
     if not profile:
         await message.answer("You don't have a profile yet. Use /profile to create one.")
@@ -361,7 +372,17 @@ async def cmd_myprofile(message: Message, profile_service: ProfileService) -> No
 # ─────────── /deleteprofile ───────────
 
 @router.message(Command("deleteprofile"))
-async def cmd_deleteprofile(message: Message, profile_service: ProfileService) -> None:
+async def cmd_deleteprofile(
+    message: Message, profile_service: ProfileService, bot: Bot, bot_username: str
+) -> None:
+    if not is_private(message):
+        await redirect_to_dm(
+            message, bot, bot_username,
+            payload="profile",
+            button_text="🗑 Manage my profile",
+            hint="👆 Manage or delete your profile in a private chat with the bot.",
+        )
+        return
     profile = await profile_service.get(message.from_user.id)
     if not profile:
         await message.answer("You don't have a profile to delete.")

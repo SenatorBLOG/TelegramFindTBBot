@@ -5,6 +5,8 @@ import logging
 from typing import Optional
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import InputMediaPhoto
 
 log = logging.getLogger(__name__)
 
@@ -56,10 +58,39 @@ class TopicService:
         new_text: str,
         photo_file_id: Optional[str] = None,
     ) -> int:
-        """Delete the old profile post and send a fresh one in the same topic."""
-        if old_message_id is not None:
+        """Edit the existing card in place so it keeps its position and replies.
+
+        Falls back to delete + resend only when the message type changes
+        (text card ⇄ photo card) or the old message is gone. Returns the
+        message_id of the (possibly new) card.
+        """
+        if old_message_id is None:
+            return await self.send_profile(topic_id, new_text, photo_file_id)
+
+        try:
+            if photo_file_id:
+                # Updates both the image and the caption in a single call, and
+                # is a no-op-safe way to refresh a photo card.
+                await self._bot.edit_message_media(
+                    chat_id=self._group_id,
+                    message_id=old_message_id,
+                    media=InputMediaPhoto(media=photo_file_id, caption=new_text),
+                )
+            else:
+                await self._bot.edit_message_text(
+                    chat_id=self._group_id,
+                    message_id=old_message_id,
+                    text=new_text,
+                    disable_web_page_preview=True,
+                )
+            return old_message_id
+        except TelegramBadRequest as e:
+            if "not modified" in str(e).lower():
+                return old_message_id  # already identical — nothing to do
+            # Message type changed (text⇄photo) or it was deleted — resend.
+            log.info("In-place card edit failed (%s) — resending", e)
             await self.delete_message(old_message_id)
-        return await self.send_profile(topic_id, new_text, photo_file_id)
+            return await self.send_profile(topic_id, new_text, photo_file_id)
 
     async def delete_message(self, message_id: int) -> None:
         """Delete any single message from the group (e.g. an old profile card)."""

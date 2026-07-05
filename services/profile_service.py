@@ -72,8 +72,8 @@ class ProfileService:
         text = format_profile(saved)
 
         try:
-            # If profile already has a card in the same destination topic → update it.
-            # Otherwise (new profile, or destination changed) → delete old card + post fresh.
+            # Same destination topic → edit the card in place (keeps position &
+            # replies). New profile or changed destination → delete old, post fresh.
             if saved.topic_id == topic_id and saved.last_message_id is not None:
                 msg_id = await self._topics.update_profile(
                     topic_id, saved.last_message_id, text, saved.photo_file_id

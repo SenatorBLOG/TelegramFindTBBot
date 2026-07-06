@@ -1,7 +1,10 @@
 """Orchestrator for profile creation, editing, deletion, and moderation."""
 from __future__ import annotations
 
+import asyncio
 import logging
+
+from aiogram import Bot
 
 from keyboards.interest_kb import interest_kb
 from models import UserProfile
@@ -10,7 +13,7 @@ from repositories.interest_repo import InterestRepository
 from repositories.profile_repo import ProfileRepository
 from services.topic_service import TopicService
 from utils.flags import extract_year_for_topic, normalize_destination
-from utils.formatters import format_profile, format_topic_title
+from utils.formatters import esc, format_profile, format_topic_title
 
 log = logging.getLogger(__name__)
 
@@ -22,11 +25,13 @@ class ProfileService:
         topics: TopicService,
         dest_topics: DestinationTopicRepository,
         interests: InterestRepository,
+        bot: Bot,
     ):
         self._profiles = profiles
         self._topics = topics
         self._dest_topics = dest_topics
         self._interests = interests
+        self._bot = bot
 
     async def get(self, user_id: int) -> UserProfile | None:
         return await self._profiles.get_by_user_id(user_id)
@@ -83,12 +88,14 @@ class ProfileService:
                 msg_id = await self._topics.update_profile(
                     topic_id, saved.last_message_id, text, saved.photo_file_id, kb
                 )
+                is_new_card = False
             else:
                 if saved.last_message_id is not None:
                     await self._topics.delete_message(saved.last_message_id)
                 msg_id = await self._topics.send_profile(
                     topic_id, text, saved.photo_file_id, kb
                 )
+                is_new_card = True
         except Exception as e:
             log.error(
                 "Could not post profile card for user=%s to topic=%s: %s",
@@ -101,7 +108,42 @@ class ProfileService:
         saved.last_message_id = msg_id
         log.info("Published profile user=%s topic=%s msg=%s", saved.user_id, topic_id, msg_id)
 
+        # Only a brand-new appearance in a topic triggers match alerts (not edits).
+        if is_new_card:
+            asyncio.create_task(self._alert_topic_mates(saved))
+
         return saved, self._topics.build_topic_link(topic_id)
+
+    async def _alert_topic_mates(self, newcomer: UserProfile) -> None:
+        """DM the other active travellers in this destination topic (best-effort)."""
+        if newcomer.topic_id is None or newcomer.last_message_id is None:
+            return
+        try:
+            mates = await self._profiles.list_active_by_topic(
+                newcomer.topic_id, exclude_user_id=newcomer.user_id
+            )
+        except Exception as e:
+            log.warning("Match-alert lookup failed: %s", e)
+            return
+
+        link = self._topics.build_message_link(newcomer.last_message_id)
+        text = (
+            f"🔥 <b>New traveller to {esc(newcomer.destination)}!</b>\n\n"
+            f"✈️ <b>{esc(newcomer.name)}</b> — {esc(newcomer.dates)}\n\n"
+            f'<a href="{link}">View their profile</a>'
+        )
+        sent = 0
+        for mate in mates:
+            try:
+                await self._bot.send_message(
+                    chat_id=mate.user_id, text=text, disable_web_page_preview=True
+                )
+                sent += 1
+            except Exception:
+                pass  # owner never opened the bot / blocked it — skip silently
+        if sent:
+            log.info("Match alert: notified %s traveller(s) in topic %s",
+                     sent, newcomer.topic_id)
 
     # ─────────── moderation flow ───────────
 

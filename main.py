@@ -212,7 +212,7 @@ async def main() -> None:
     # Services
     topic_service = TopicService(bot, cfg.group_id)
     profile_service = ProfileService(
-        profile_repo, topic_service, dest_topic_repo, interest_repo
+        profile_repo, topic_service, dest_topic_repo, interest_repo, bot
     )
     search_service = SearchService(profile_repo, topic_service)
     index_service = IndexService(

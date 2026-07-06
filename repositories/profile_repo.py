@@ -59,6 +59,22 @@ class ProfileRepository:
             rows = await cur.fetchall()
         return [_row_to_profile(r) for r in rows]
 
+    async def list_active_by_topic(
+        self, topic_id: int, exclude_user_id: int, limit: int = 50
+    ) -> list[UserProfile]:
+        """Active profiles sharing a destination topic (real users only).
+
+        Used by match alerts: notify existing travellers when a new one appears.
+        Imported profiles (negative user_id) are excluded — they can't get DMs.
+        """
+        async with self._conn.execute(
+            "SELECT * FROM profiles WHERE topic_id = ? AND status = 'active' "
+            "AND user_id > 0 AND user_id != ? ORDER BY updated_at DESC LIMIT ?",
+            (topic_id, exclude_user_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_profile(r) for r in rows]
+
     # ─────────── writes ───────────
 
     async def upsert(self, profile: UserProfile) -> UserProfile:

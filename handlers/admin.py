@@ -20,6 +20,7 @@ from aiogram.types import (
 from models import UserProfile
 from repositories.moderation_repo import ModerationRepository
 from repositories.profile_repo import ProfileRepository
+from services.index_service import IndexService
 from services.profile_service import ProfileService
 from utils.formatters import esc
 
@@ -202,6 +203,30 @@ async def cmd_import(
         await message.answer(
             f"✅ Imported: <b>{esc(saved.name)}</b> → {esc(saved.destination)}\n"
             "⚠️ Profile saved but topic creation failed — check bot admin rights."
+        )
+
+
+# ─────────── /refreshindex ───────────
+
+@router.message(Command("refreshindex"))
+async def cmd_refreshindex(
+    message: Message, admin_user_id: int, index_service: IndexService
+) -> None:
+    """Post a fresh pinned 'Create my profile' index message in the group.
+
+    This is the ONLY path that creates a new group message — the bot never
+    posts one automatically on restart. Run it once (or after you delete the
+    old one). The bot then silently keeps it up to date on future restarts.
+    """
+    if not _guard(message.from_user.id, admin_user_id):
+        return
+    msg_id = await index_service.post_fresh()
+    if msg_id:
+        await message.answer(f"✅ Index message posted & pinned (id {msg_id}).")
+    else:
+        await message.answer(
+            "❌ Could not post the index. Check PROFILES_TOPIC_ID is set and "
+            "the bot is an admin with Topics enabled."
         )
 
 

@@ -39,6 +39,7 @@ HELP = (
     "/stats — usage statistics\n"
     "/moderation — review pending profiles\n"
     "/spamlog — recently deleted spam\n"
+    "/refreshindex — (re)post the pinned index message\n"
     "/import — import a profile from Facebook"
 )
 

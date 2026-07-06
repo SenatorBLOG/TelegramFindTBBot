@@ -7,7 +7,6 @@ import sys
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware, Bot
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, TelegramObject
 
 from bot import make_bot, make_dispatcher
@@ -19,6 +18,7 @@ from repositories.destination_topic_repo import DestinationTopicRepository
 from repositories.moderation_repo import ModerationRepository
 from repositories.profile_repo import ProfileRepository
 from repositories.user_repo import UserRepository
+from services.index_service import IndexService
 from services.profile_service import ProfileService
 from services.search_service import SearchService
 from services.topic_service import TopicService
@@ -176,110 +176,6 @@ async def check_permissions(bot: Bot, group_id: int) -> None:
         log.warning("Could not verify group permissions: %s", e)
 
 
-# ─────────── profiles tab index message ───────────
-
-_INDEX_TEXT = (
-    "✈️ <b>Find a Travel Buddy</b>\n\n"
-    "Browse traveller profiles below and find your perfect trip companion.\n\n"
-    "Ready to meet people? Tap the button to create your profile."
-)
-_INDEX_KEY = "profiles_index_msg_id"
-
-
-async def post_profiles_index(
-    bot: Bot,
-    group_id: int,
-    profiles_topic_id: int,
-    bot_username: str,
-    db_conn,
-) -> None:
-    """On startup: edit the existing index message if possible, otherwise post a new one.
-
-    Storing the message_id in the `settings` table prevents duplicate messages
-    every time Render restarts the process.
-    """
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(
-            text="📝 Create my profile",
-            url=f"https://t.me/{bot_username}?start=profile",
-        ),
-    ]])
-
-    # ── Try to edit the previously posted message ──────────────────────────
-    async with db_conn.execute(
-        "SELECT value FROM settings WHERE key = ?", (_INDEX_KEY,)
-    ) as cur:
-        row = await cur.fetchone()
-
-    if row:
-        try:
-            await bot.edit_message_text(
-                chat_id=group_id,
-                message_id=int(row[0]),
-                text=_INDEX_TEXT,
-                reply_markup=kb,
-                disable_web_page_preview=True,
-            )
-            log.info("Edited profiles index message %s", row[0])
-            return
-        except TelegramBadRequest as e:
-            desc = str(e).lower()
-            if "message is not modified" in desc:
-                # Content already identical (the usual case on a plain restart).
-                # The message is present and correct — do NOT repost.
-                log.info("Index message %s already up to date", row[0])
-                return
-            if "not found" in desc or "can't be edited" in desc or "to edit" in desc:
-                # The stored message was genuinely deleted — fall through to
-                # post exactly one fresh copy.
-                log.info("Index message %s is gone (%s) — reposting once", row[0], e)
-            else:
-                # Unknown edit failure: refuse to repost so we never spam the
-                # group with duplicates. Keep the stored id and bail out.
-                log.warning("Index edit failed, NOT reposting to avoid duplicates: %s", e)
-                return
-        except Exception as e:
-            log.warning("Index edit error, NOT reposting to avoid duplicates: %s", e)
-            return
-
-    # ── Post a brand-new message and remember its ID ───────────────────────
-    try:
-        # Unpin everything in this topic first so we don't accumulate pinned messages
-        try:
-            await bot.unpin_all_forum_topic_messages(
-                chat_id=group_id,
-                message_thread_id=profiles_topic_id,
-            )
-        except Exception:
-            pass  # might fail if no messages pinned — that's fine
-
-        msg = await bot.send_message(
-            chat_id=group_id,
-            message_thread_id=profiles_topic_id,
-            text=_INDEX_TEXT,
-            reply_markup=kb,
-            disable_web_page_preview=True,
-        )
-        await db_conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (_INDEX_KEY, str(msg.message_id)),
-        )
-        await db_conn.commit()
-        # Pin only this one message
-        try:
-            await bot.pin_chat_message(
-                chat_id=group_id,
-                message_id=msg.message_id,
-                disable_notification=True,
-            )
-        except Exception as pin_err:
-            log.warning("Could not pin index message: %s", pin_err)
-        log.info("Posted new profiles index message %s", msg.message_id)
-    except Exception as e:
-        log.warning("Could not post profiles index message: %s", e)
-
-
 # ─────────── main ───────────
 
 async def main() -> None:
@@ -315,6 +211,9 @@ async def main() -> None:
     topic_service = TopicService(bot, cfg.group_id)
     profile_service = ProfileService(profile_repo, topic_service, dest_topic_repo)
     search_service = SearchService(profile_repo, topic_service)
+    index_service = IndexService(
+        bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
+    )
 
     # Inject into handler context
     dp["profile_service"] = profile_service
@@ -327,6 +226,7 @@ async def main() -> None:
     dp["bot_username"] = bot_username
     dp["profiles_topic_id"] = cfg.profiles_topic_id
     dp["mod_repo"] = mod_repo
+    dp["index_service"] = index_service
 
     # Class-based middlewares.
     # Spam runs FIRST (outer) so spammers are dropped before TrackUser records
@@ -345,11 +245,11 @@ async def main() -> None:
 
     try:
         if cfg.webhook_url and cfg.mode.value == "PROD":
-            await _run_webhook(bot, dp, cfg, db, bot_username)
+            await _run_webhook(bot, dp, cfg, index_service)
         else:
             await bot.delete_webhook(drop_pending_updates=True)
             # Background startup tasks for polling mode
-            asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
+            asyncio.create_task(_startup_tasks(bot, cfg, index_service))
             await dp.start_polling(
                 bot, allowed_updates=dp.resolve_used_update_types()
             )
@@ -361,16 +261,18 @@ async def main() -> None:
             await storage.close()
 
 
-async def _startup_tasks(bot, cfg, db, bot_username: str) -> None:
-    """Non-critical startup tasks — run after server is ready."""
+async def _startup_tasks(bot, cfg, index_service: IndexService) -> None:
+    """Non-critical startup tasks — run after server is ready.
+
+    Note: index_service.refresh_silent() only edits the existing pinned message
+    in place; it never posts a new one, so restarts stay invisible to the group.
+    """
     await check_permissions(bot, cfg.group_id)
     if cfg.profiles_topic_id:
-        await post_profiles_index(
-            bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
-        )
+        await index_service.refresh_silent()
 
 
-async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None:
+async def _run_webhook(bot: Bot, dp, cfg: Config, index_service: IndexService) -> None:
     from aiohttp import web
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
@@ -410,7 +312,7 @@ async def _run_webhook(bot: Bot, dp, cfg: Config, db, bot_username: str) -> None
             url,
         )
 
-    asyncio.create_task(_startup_tasks(bot, cfg, db, bot_username))
+    asyncio.create_task(_startup_tasks(bot, cfg, index_service))
 
     await asyncio.Event().wait()  # run until interrupted
 

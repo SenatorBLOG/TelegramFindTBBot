@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS spam_log (
     reason     TEXT,
     created_at TEXT NOT NULL
 );
+
+-- "I'm interested" taps: who is interested in whose trip.
+CREATE TABLE IF NOT EXISTS interests (
+    owner_id   INTEGER NOT NULL,   -- profile owner (the one being liked)
+    from_id    INTEGER NOT NULL,   -- the interested traveller
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_id, from_id)
+);
 """
 
 # Columns added after initial release — applied idempotently to existing DBs.

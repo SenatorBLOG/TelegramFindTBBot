@@ -12,9 +12,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, T
 from bot import make_bot, make_dispatcher
 from config import Config
 from db import Database
-from handlers import admin, common, profile, search
+from handlers import admin, common, interest, profile, search
 from handlers import group as group_handler
 from repositories.destination_topic_repo import DestinationTopicRepository
+from repositories.interest_repo import InterestRepository
 from repositories.moderation_repo import ModerationRepository
 from repositories.profile_repo import ProfileRepository
 from repositories.user_repo import UserRepository
@@ -197,6 +198,7 @@ async def main() -> None:
     user_repo = UserRepository(db.conn)
     dest_topic_repo = DestinationTopicRepository(db.conn)
     mod_repo = ModerationRepository(db.conn)
+    interest_repo = InterestRepository(db.conn)
 
     # Bot + Dispatcher (FSM stored in a separate SQLite file)
     fsm_path = cfg.db_path.parent / "fsm.db"
@@ -209,7 +211,9 @@ async def main() -> None:
 
     # Services
     topic_service = TopicService(bot, cfg.group_id)
-    profile_service = ProfileService(profile_repo, topic_service, dest_topic_repo)
+    profile_service = ProfileService(
+        profile_repo, topic_service, dest_topic_repo, interest_repo
+    )
     search_service = SearchService(profile_repo, topic_service)
     index_service = IndexService(
         bot, cfg.group_id, cfg.profiles_topic_id, bot_username, db.conn
@@ -227,6 +231,7 @@ async def main() -> None:
     dp["profiles_topic_id"] = cfg.profiles_topic_id
     dp["mod_repo"] = mod_repo
     dp["index_service"] = index_service
+    dp["interest_repo"] = interest_repo
 
     # Class-based middlewares.
     # Spam runs FIRST (outer) so spammers are dropped before TrackUser records
@@ -240,6 +245,7 @@ async def main() -> None:
     dp.include_router(common.router)
     dp.include_router(profile.router)
     dp.include_router(search.router)
+    dp.include_router(interest.router)
     dp.include_router(admin.router)
     dp.include_router(group_handler.router)
 

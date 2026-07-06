@@ -33,6 +33,7 @@ class TopicService:
         topic_id: int,
         text: str,
         photo_file_id: Optional[str] = None,
+        reply_markup=None,
     ) -> int:
         """Post a profile card into a topic. Returns the new message_id."""
         if photo_file_id:
@@ -41,6 +42,7 @@ class TopicService:
                 photo=photo_file_id,
                 caption=text,
                 message_thread_id=topic_id,
+                reply_markup=reply_markup,
             )
         else:
             msg = await self._bot.send_message(
@@ -48,6 +50,7 @@ class TopicService:
                 text=text,
                 message_thread_id=topic_id,
                 disable_web_page_preview=True,
+                reply_markup=reply_markup,
             )
         return msg.message_id
 
@@ -57,6 +60,7 @@ class TopicService:
         old_message_id: Optional[int],
         new_text: str,
         photo_file_id: Optional[str] = None,
+        reply_markup=None,
     ) -> int:
         """Edit the existing card in place so it keeps its position and replies.
 
@@ -65,7 +69,7 @@ class TopicService:
         message_id of the (possibly new) card.
         """
         if old_message_id is None:
-            return await self.send_profile(topic_id, new_text, photo_file_id)
+            return await self.send_profile(topic_id, new_text, photo_file_id, reply_markup)
 
         try:
             if photo_file_id:
@@ -75,6 +79,7 @@ class TopicService:
                     chat_id=self._group_id,
                     message_id=old_message_id,
                     media=InputMediaPhoto(media=photo_file_id, caption=new_text),
+                    reply_markup=reply_markup,
                 )
             else:
                 await self._bot.edit_message_text(
@@ -82,6 +87,7 @@ class TopicService:
                     message_id=old_message_id,
                     text=new_text,
                     disable_web_page_preview=True,
+                    reply_markup=reply_markup,
                 )
             return old_message_id
         except TelegramBadRequest as e:
@@ -90,7 +96,15 @@ class TopicService:
             # Message type changed (text⇄photo) or it was deleted — resend.
             log.info("In-place card edit failed (%s) — resending", e)
             await self.delete_message(old_message_id)
-            return await self.send_profile(topic_id, new_text, photo_file_id)
+            return await self.send_profile(topic_id, new_text, photo_file_id, reply_markup)
+
+    async def edit_markup(self, message_id: int, reply_markup) -> None:
+        """Replace just the inline keyboard on a card (used for the live counter)."""
+        await self._bot.edit_message_reply_markup(
+            chat_id=self._group_id,
+            message_id=message_id,
+            reply_markup=reply_markup,
+        )
 
     async def delete_message(self, message_id: int) -> None:
         """Delete any single message from the group (e.g. an old profile card)."""

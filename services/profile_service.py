@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 
+from keyboards.interest_kb import interest_kb
 from models import UserProfile
 from repositories.destination_topic_repo import DestinationTopicRepository
+from repositories.interest_repo import InterestRepository
 from repositories.profile_repo import ProfileRepository
 from services.topic_service import TopicService
 from utils.flags import extract_year_for_topic, normalize_destination
@@ -19,10 +21,12 @@ class ProfileService:
         profiles: ProfileRepository,
         topics: TopicService,
         dest_topics: DestinationTopicRepository,
+        interests: InterestRepository,
     ):
         self._profiles = profiles
         self._topics = topics
         self._dest_topics = dest_topics
+        self._interests = interests
 
     async def get(self, user_id: int) -> UserProfile | None:
         return await self._profiles.get_by_user_id(user_id)
@@ -70,18 +74,21 @@ class ProfileService:
             return saved, None
 
         text = format_profile(saved)
+        kb = interest_kb(saved.user_id, await self._interests.count(saved.user_id))
 
         try:
             # Same destination topic → edit the card in place (keeps position &
             # replies). New profile or changed destination → delete old, post fresh.
             if saved.topic_id == topic_id and saved.last_message_id is not None:
                 msg_id = await self._topics.update_profile(
-                    topic_id, saved.last_message_id, text, saved.photo_file_id
+                    topic_id, saved.last_message_id, text, saved.photo_file_id, kb
                 )
             else:
                 if saved.last_message_id is not None:
                     await self._topics.delete_message(saved.last_message_id)
-                msg_id = await self._topics.send_profile(topic_id, text, saved.photo_file_id)
+                msg_id = await self._topics.send_profile(
+                    topic_id, text, saved.photo_file_id, kb
+                )
         except Exception as e:
             log.error(
                 "Could not post profile card for user=%s to topic=%s: %s",

@@ -32,18 +32,27 @@ _SUBSTR_WORDS: list[str] = [
     # EN — adult / gambling / finance spam
     "casino", "onlyfans", "pornhub", "bitcoin", "ethereum", "usdt", "forex",
     "viagra", "cialis", "xxx",
+    # EN — investment / "I withdrew my profit" trading scams
+    "withdrawal", "withdrew", "trading", "binaryoption", "primewave",
     # RU — the usual group-spam vocabulary
     "казино", "порно", "вебкам", "интим", "эскорт", "биткоин", "бинанс",
     "форекс", "крипт", "ставки", "ставок", "заработок", "зарабат", "промокод",
-    "вложени", "инвестиц",
+    "вложени", "инвестиц", "трейд", "прибыль", "выводсредств",
 ]
 
 # Short / ambiguous — only match as standalone words to avoid false positives.
 _BOUNDARY_WORDS: list[str] = [
-    "crypto", "btc", "invest", "trading", "bet", "betting", "porn", "nude",
-    "nudes", "escort", "sex", "loan",
+    "crypto", "btc", "invest", "trader", "bet", "betting", "porn", "nude",
+    "nudes", "escort", "sex", "loan", "profit", "profits", "payout",
     "доход", "займ", "кредит", "секс",
 ]
+
+# A money amount ($1,200 / 10 850 USD / 5000$). On its own it's fine, but a
+# money amount TOGETHER WITH a link is the classic "I withdrew $X" scam.
+_MONEY_RE = re.compile(
+    r"(\$\s?\d|\d[\d\s.,]*\s?(usd|dollars?|eur|euros?|бакс|долл|евро))",
+    re.IGNORECASE,
+)
 
 # Telegram invite / channel-join links — near-certain spam in a group.
 _INVITE_RE = re.compile(
@@ -113,6 +122,11 @@ def spam_reason(text: str | None) -> Optional[str]:
     for w in _BOUNDARY_WORDS:
         if re.search(rf"\b{re.escape(w)}\b", norm):
             return f"word:{w}"
+
+    # "I withdrew $10,850 profit 👉 t.me/..." — a money amount next to a link is
+    # the signature of investment/withdrawal scams even with no banned word.
+    if _MONEY_RE.search(norm) and _LINK_RE.search(norm):
+        return "money+link"
 
     return None
 

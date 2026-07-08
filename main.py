@@ -60,9 +60,12 @@ class TrackUserMiddleware(BaseMiddleware):
 class SpamMiddleware(BaseMiddleware):
     """Delete spam in the group and alert the admin.
 
-    Two layers:
-      1. Hard spam (banned words / invite links) — deleted for everyone.
-      2. Newcomer quarantine — a member in their first few messages / first 24h
+    Layers:
+      1. Hard spam (banned words / invite links / money+link) — deleted for all.
+      2. Forwarded + link — forwarded channel posts with a link are the classic
+         "I withdrew $X, join t.me/…" scam; deleted for everyone regardless of
+         tenure.
+      3. Newcomer quarantine — a member in their first few messages / first 24h
          may not post links; established members can.
     Also runs on edited_message so "post benign, edit into spam" is caught.
     Only enforced inside the configured group; private chats are left alone.
@@ -87,14 +90,25 @@ class SpamMiddleware(BaseMiddleware):
         text = event.text or event.caption
 
         reason = spam_reason(text)
-        if reason is None and mod is not None:
-            try:
-                is_new = await mod.touch_member(event.chat.id, user.id)
-            except Exception as e:
-                log.warning("touch_member failed: %s", e)
-                is_new = False
-            if is_new and contains_link(text):
-                reason = "newcomer-link"
+        if reason is None:
+            has_link = contains_link(text)
+            # Forwarded message carrying a link → treat as spam for everyone.
+            is_forwarded = bool(
+                getattr(event, "forward_origin", None)
+                or getattr(event, "forward_date", None)
+                or getattr(event, "forward_from", None)
+                or getattr(event, "forward_from_chat", None)
+            )
+            if has_link and is_forwarded:
+                reason = "forwarded-link"
+            elif mod is not None:
+                try:
+                    is_new = await mod.touch_member(event.chat.id, user.id)
+                except Exception as e:
+                    log.warning("touch_member failed: %s", e)
+                    is_new = False
+                if is_new and has_link:
+                    reason = "newcomer-link"
 
         if reason is None:
             return await handler(event, data)
